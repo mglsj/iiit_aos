@@ -1,10 +1,6 @@
 #!/bin/sh
 set -e
 
-(
-    cd "$(dirname "$0")"
-    cmake -B build -S .
-    cmake --build ./build
-)
-
-exec $(dirname "$0")/build/shell "$@"
+dir=$(dirname "$0")
+make -C "$dir" build
+exec "$dir/build/asan/shell" "$@"

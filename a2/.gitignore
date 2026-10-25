@@ -54,8 +54,6 @@ dkms.conf
 build
 vcpkg_installed
 
-# makefile output
-/shell
 
 # Devenv
 .devenv*
