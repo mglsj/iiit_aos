@@ -1,0 +1,12 @@
+CompileFlags:
+    CompilationDatabase: build
+    Add: [-Wno-unknown-warning-option, "-Dpre(...)="]
+Diagnostics:
+    Suppress:
+        - no_member
+        - typename_requires_specqual
+        - blocks_disable
+        - expected_expression
+        - nonfunction_block_type
+        - ref_non_value
+        - static_assert_expression_is_not_constant

@@ -1,0 +1,6 @@
+# LLVM style, except that delete gets no space before its parenthesis, so
+# clang-format keeps C++26's = delete("reason") as written
+BasedOnStyle: LLVM
+SpaceBeforeParens: Custom
+SpaceBeforeParensOptions:
+  AfterPlacementOperator: false
