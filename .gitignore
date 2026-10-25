@@ -1,9 +1,11 @@
+# Build output
 build/
 compile_flags.txt
 
-# Devenv
+# Devenv / direnv
 .devenv*
 devenv.local.nix
 devenv.local.yaml
 .direnv
 .cache
+.pre-commit-config.yaml
