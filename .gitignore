@@ -1,0 +1,9 @@
+build/
+compile_flags.txt
+
+# Devenv
+.devenv*
+devenv.local.nix
+devenv.local.yaml
+.direnv
+.cache
