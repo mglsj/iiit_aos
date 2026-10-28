@@ -1,27 +1,30 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 4.4)
 
-project(shell C)
+project(shell LANGUAGES C)
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CompilerFlags.cmake)
+include(${PROJECT_SOURCE_DIR}/../cmake/CompilerFlags.cmake)
 
-file(GLOB_RECURSE SOURCE_FILES CONFIGURE_DEPENDS src/*.c src/*.h)
-
-set(CMAKE_C_STANDARD 23)
-set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 set(WARNINGS -Wall -Wextra)
 
-add_compile_options(${WARNINGS})
-enable_sanitizer()
+add_library(options INTERFACE)
+target_compile_features(options INTERFACE c_std_23)
+target_compile_options(options INTERFACE ${WARNINGS})
+enable_sanitizer(options)
+enable_hardening(options)
 
-add_executable(shell ${SOURCE_FILES})
-target_link_libraries(shell PRIVATE readline)
+file(GLOB_RECURSE SOURCE_FILES CONFIGURE_DEPENDS src/*.c)
+
+add_executable(shell)
+target_sources(shell PRIVATE ${SOURCE_FILES})
+target_link_libraries(shell PRIVATE options readline)
 
 find_path(READLINE_INCLUDE_DIR readline/readline.h)
 write_compile_flags(
     LANG C
-    STD gnu2x
+    STD gnu23
     FLAGS ${WARNINGS}
     INCLUDES ${READLINE_INCLUDE_DIR}
 )

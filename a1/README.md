@@ -2,8 +2,9 @@
 
 Spec: [assignment_1.pdf](assignment_1.pdf)
 
-- `q1.c`: reverses a file into `Assignment1/`. Modes: `0` block-wise, `1` full, `2` partial range.
-- `q2.c`: checks permissions and that the output matches the chosen reversal.
+- `src/q1.c`: reverses a file into `Assignment1/`. Modes: `0` block-wise, `1` full, `2` partial range.
+- `src/q2.c`: checks permissions and that the output matches the chosen reversal.
+- `src/commons.h`, `src/file.h`: helpers shared by both.
 
 ```sh
 make build

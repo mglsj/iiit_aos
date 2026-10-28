@@ -1,21 +1,23 @@
-cmake_minimum_required(VERSION 3.13)
+cmake_minimum_required(VERSION 4.4)
 
-project(a1 C)
+project(a1 LANGUAGES C)
 
-include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CompilerFlags.cmake)
+include(${PROJECT_SOURCE_DIR}/../cmake/CompilerFlags.cmake)
 
-set(CMAKE_C_STANDARD 23)
-set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 set(WARNINGS -Wall -Wextra)
 
-add_compile_options(${WARNINGS})
-enable_sanitizer()
+add_library(options INTERFACE)
+target_compile_features(options INTERFACE c_std_23)
+target_compile_options(options INTERFACE ${WARNINGS})
+enable_sanitizer(options)
+enable_hardening(options)
 
-foreach(q q1 q2)
-    add_executable(${q} ${q}.c)
-    target_link_libraries(${q} PRIVATE m)
+foreach(q IN ITEMS q1 q2)
+    add_executable(${q} src/${q}.c)
+    target_link_libraries(${q} PRIVATE options m)
 endforeach()
 
-write_compile_flags(LANG C STD gnu17 FLAGS ${WARNINGS})
+write_compile_flags(LANG C STD gnu23 FLAGS ${WARNINGS})
