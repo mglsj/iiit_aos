@@ -3,6 +3,8 @@ import time
 
 from pyspark.sql import SparkSession
 
+MAX_CYCLE_LEN = 25
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -15,75 +17,93 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def to_edge(line):
+    parts = line.split()
+    if len(parts) < 5:
+        return []
+    timestamp = parts[0] + " " + parts[1]
+    level, p, r = parts[2].upper(), parts[3], parts[4]
+    if level == "WAIT":
+        return [((p, r), timestamp)]
+    if level == "HOLD":
+        return [((r, p), timestamp)]
+    return []
+
+
 def main() -> None:
     args = parse_args()
+    cores = args.no_of_cores
     spark = (
-        SparkSession.builder.master(f"local[{args.no_of_cores}]")
+        SparkSession.builder.master(f"local[{cores}]")
         .appName("2026201063 Assignment 5")
+        .config("spark.default.parallelism", str(cores))
         .getOrCreate()
     )
     sc = spark.sparkContext
     sc.setLogLevel("ERROR")
 
-    lines = sc.textFile(args.log_path)
+    lines = sc.textFile(args.log_path, minPartitions=cores)
 
     # Q1: RAG construction and graph metrics
-    def to_edge(line):
-        try:
-            timestamp, level, p, r = line.strip().split("\t")
-            if level == "WAIT":
-                return [((p, r), timestamp)]
-            elif level == "HOLD":
-                return [((r, p), timestamp)]
-        except ValueError:
-            pass
-        return []
+    timed_edges = lines.flatMap(to_edge).reduceByKey(min).cache()
+    edges = timed_edges.keys().cache()
 
-    timed_edges = lines.flatMap(to_edge).reduceByKey(lambda x, y: min(x, y)).cache()
-    edges = timed_edges.map(lambda e: e[0]).cache()
-
-    procs = edges.map(lambda e: e[0] if e[0].startswith("P") else e[1]).distinct()
-    res = edges.map(lambda e: e[1] if e[1].startswith("R") else e[0]).distinct()
-
-    print(procs.count())
-    print(res.count())
+    nodes = edges.flatMap(lambda e: e).distinct().cache()
+    print(nodes.filter(lambda n: n.startswith("P")).count())
+    print(nodes.filter(lambda n: n.startswith("R")).count())
     print(edges.count())
 
-    # Q2: cycle detection (MapReduce path propagation, max cycle length 25)
+    # Q2: cycle detection
     start = time.time()
 
-    paths = procs.map(lambda proc: (proc,))
-    cycles = sc.parallelize([])
+    # Trim edges touching nodes with no in-edge or no out-edge: such nodes
+    # cannot lie on a cycle. Repeat until the edge set stops shrinking.
+    live = edges
+    n_live = live.count()
+    while True:
+        has_out = live.map(lambda e: (e[0], None)).distinct()
+        has_in = live.map(lambda e: (e[1], None)).distinct()
+        keep = sc.broadcast(set(has_out.join(has_in).keys().collect()))
+        live = live.filter(lambda e: e[0] in keep.value and e[1] in keep.value).cache()
+        n = live.count()
+        if n == n_live:
+            break
+        n_live = n
 
-    edges_keyed = edges.map(lambda e: (e[0], e[1]))
+    edges_keyed = live.partitionBy(cores).cache()
 
-    for _ in range(25):
-        paths_keyed = paths.map(lambda path: (path[-1], path))
-        joined = paths_keyed.join(edges_keyed)
-        paths = joined.map(lambda item: item[1][0] + (item[1][1],))
-
-        detected_cycles = paths.filter(lambda path: path[0] == path[-1])
-        cycles = cycles.union(detected_cycles)
-
-        paths = paths.filter(lambda path: path[-1] not in path[:-1]).cache()
-        if paths.isEmpty():
+    # A path is only extended to nodes greater than its start node, so each
+    # cycle is grown exactly once, from its smallest node. Since "P" < "R"
+    # that node is always a process, and the cycle is already canonical.
+    paths = (
+        live.keys().filter(lambda n: n.startswith("P")).distinct().map(lambda n: (n,))
+    )
+    found = []
+    for _ in range(MAX_CYCLE_LEN):
+        joined = paths.map(lambda path: (path[-1], path)).join(edges_keyed)
+        extended = (
+            joined.map(lambda kv: kv[1][0] + (kv[1][1],))
+            .filter(
+                lambda path: (
+                    path[-1] == path[0]
+                    or (path[-1] > path[0] and path[-1] not in path[1:-1])
+                )
+            )
+            .cache()
+        )
+        found.extend(extended.filter(lambda path: path[-1] == path[0]).collect())
+        nxt = extended.filter(lambda path: path[-1] != path[0]).cache()
+        empty = nxt.count() == 0  # materialise before dropping the parents
+        paths.unpersist()
+        extended.unpersist()
+        paths = nxt
+        if empty:
             break
 
-    def canonical(path):
-        path = path[:-1]
-        min_ele = min(path)
-        i = path.index(min_ele)
-        return path[i:] + path[:i]
-
-    cycles = cycles.map(canonical).distinct().cache()
-    sorted_cycles = sorted(cycles.collect(), key=lambda c: (len(c), c))
-
-    procs_in_cycle = set()
-
-    for cycle in sorted_cycles:
-        for ele in cycle:
-            if ele.startswith("P"):
-                procs_in_cycle.add(ele)
+    sorted_cycles = sorted((c[:-1] for c in found), key=lambda c: (len(c), c))
+    procs_in_cycle = sorted(
+        {n for cycle in sorted_cycles for n in cycle if n.startswith("P")}
+    )
 
     elapsed = time.time() - start
     print(f"{elapsed:.2f}")
@@ -93,33 +113,42 @@ def main() -> None:
         print(*cycle)
 
     print(len(procs_in_cycle))
-    print(*sorted(procs_in_cycle))
+    print(*procs_in_cycle)
 
-    # Q3: deadlock formation timeline and timing
+    # Q3.1: deadlock formation timeline
     def cycle_edges(cycle):
         return list(zip(cycle, cycle[1:] + cycle[:1]))
 
-    cycle_edge_pairs = cycles.flatMap(lambda c: [(e, c) for e in cycle_edges(c)])
-    cycle_edge_times = cycle_edge_pairs.join(timed_edges)
-    cycle_times = cycle_edge_times.map(lambda item: item[1]).reduceByKey(
-        lambda x, y: max(x, y)
+    cycles = sc.parallelize(sorted_cycles)
+    day_count = (
+        cycles.flatMap(lambda c: [(e, c) for e in cycle_edges(c)])
+        .join(timed_edges)
+        .values()
+        .reduceByKey(max)
+        .map(lambda item: (item[1].split()[0], 1))
+        .reduceByKey(lambda x, y: x + y)
     )
-    day_count = cycle_times.map(lambda item: (item[1].split()[0], 1)).reduceByKey(
-        lambda x, y: x + y
-    )
-
     for pair in sorted(day_count.collect()):
         print(*pair)
 
     # Q4: in-degree / out-degree hotspots
-    in_degree = edges.map(lambda e: (e[1], 1)).reduceByKey(lambda x, y: x + y)
-    in_res = in_degree.filter(lambda n: n[0].startswith("R"))
-    for pair in in_res.takeOrdered(5, key=lambda n: (-n[1], n[0])):
+    def top5(pairs):
+        return pairs.takeOrdered(5, key=lambda n: (-n[1], n[0]))
+
+    in_res = (
+        edges.filter(lambda e: e[1].startswith("R"))
+        .map(lambda e: (e[1], 1))
+        .reduceByKey(lambda x, y: x + y)
+    )
+    for pair in top5(in_res):
         print(*pair)
 
-    out_degree = edges.map(lambda e: (e[0], 1)).reduceByKey(lambda x, y: x + y)
-    out_procs = out_degree.filter(lambda n: n[0].startswith("P"))
-    for pair in out_procs.takeOrdered(5, key=lambda n: (-n[1], n[0])):
+    out_procs = (
+        edges.filter(lambda e: e[0].startswith("P"))
+        .map(lambda e: (e[0], 1))
+        .reduceByKey(lambda x, y: x + y)
+    )
+    for pair in top5(out_procs):
         print(*pair)
 
     spark.stop()
