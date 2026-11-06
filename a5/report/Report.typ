@@ -22,7 +22,7 @@
 The whole solution is one file. It takes the log path and the number of cores as arguments.
 
 ```
-spark-submit AOS_Assignment4.py ../test_files/hpc_rag_1.log 4
+spark-submit AOS_Assignment5.py ../test_files/hpc_rag_1.log 4
 ```
 
 It runs Spark in local mode with `local[N]`, where N is the core count. The input file, every shuffle and the edge partitioning all use N partitions, so the core count actually changes how much work runs in parallel. Versions used: Python 3.10.12, PySpark 3.4.1, Java 11.
