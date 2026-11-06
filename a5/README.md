@@ -33,3 +33,13 @@ spark-submit src/main.py ../test_files/log_file_name no_of_cores
 ```
 
 The first argument is the log file path and the second is the number of cores.
+
+## Jupyter
+
+JupyterLab and the IPython kernel are dev dependencies. Start the server with:
+
+```bash
+uv run jupyter lab
+```
+
+Notebooks use the `python3` kernel from the project environment, which runs Python 3.10 with PySpark 3.4.1.
